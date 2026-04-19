@@ -70,7 +70,8 @@ export default function AddItem() {
         .select('id, quantity')
         .eq('category', category)
         .eq('subtype', subtype)
-        .single();
+        // .single();
+        .maybeSingle();
 
       if (existing) {
         // Item exists - ADD to the existing quantity
@@ -82,17 +83,42 @@ export default function AddItem() {
 
         if (error) throw error;
 
+        // Log to history
+        const { error: historyError } = await supabase
+          .from('history')
+          .insert([{
+            item_id: existing.id,
+            action: 'add',
+            quantity_changed: quantityToAdd,
+            worker_name: workerName || "Unknown"
+          }]);
+
+        if (historyError) throw historyError;
+
         setMessage({ 
           text: `Success! Added ${quantity} pieces`, 
           type: "success" 
         });
       } else {
         // Item doesn't exist - CREATE new item
-        const { error } = await supabase
+        const { data: newItem, error } = await supabase
           .from('items')
-          .insert([{ category, subtype, quantity: quantityToAdd }]);
+          .insert([{ category, subtype, quantity: quantityToAdd }])
+          .select('id');
 
         if (error) throw error;
+
+        // Log to history
+        const { error: historyError } = await supabase
+          .from('history')
+          .insert([{
+            item_id: newItem[0].id,
+            action: 'add',
+            quantity_changed: quantityToAdd,
+            worker_name: workerName || "Unknown"
+          }]);
+
+        if (historyError) throw historyError;
 
         setMessage({ 
           text: `Success! Added ${quantity} pieces`, 

@@ -46,22 +46,13 @@ export default function ManageItems() {
     }
 
     try {
-      // Add a placeholder subtype so the category appears in the list
-      const { error } = await supabase
-        .from('items')
-        .insert([{ 
-          category: newCategory, 
-          subtype: "Default",
-          quantity: 0
-        }]);
-
-      if (error) throw error;
-
       setMessage({ 
-        text: `Category "${newCategory}" created successfully`, 
+        text: `Category "${newCategory}" created! Now add subtypes for it.`, 
         type: "success" 
       });
       setNewCategory("");
+      setSelectedCategory(newCategory);
+      // Optionally refresh categories list
       await fetchCategories();
       setTimeout(() => setMessage({ text: "", type: "" }), 3000);
     } catch (err) {
@@ -95,7 +86,7 @@ export default function ManageItems() {
         .select('id')
         .eq('category', selectedCategory)
         .eq('subtype', newSubtype)
-        .single();
+        .maybeSingle();
 
       if (existing) {
         setMessage({ text: "This subtype already exists in this category", type: "error" });

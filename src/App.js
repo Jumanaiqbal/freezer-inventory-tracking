@@ -20,7 +20,7 @@ export default function App() {
       setUser(userData);
       // Set appropriate initial view based on role
       if (userData.role === "worker") {
-        setView("update");
+        setView("add");
       } else {
         setView("dashboard");
       }
@@ -32,7 +32,7 @@ export default function App() {
     setUser(userData);
     // Set initial view based on role
     if (role === "worker") {
-      setView("update"); // Workers start at Update Stock (Sales)
+      setView("add"); // Workers start at Update Stock
     } else {
       setView("dashboard"); // Admins start at Dashboard
     }
@@ -87,7 +87,7 @@ export default function App() {
             <span></span>
             <span></span>
           </button>
-          <button className="header-brand" onClick={() => handleNavClick(user?.role === "worker" ? "update" : "dashboard")}>
+          <button className="header-brand" onClick={() => handleNavClick(user?.role === "worker" ? "add" : "dashboard")}>
             <h1>Sanar Freezer</h1>
             <p className="subtitle">Inventory System</p>
           </button>

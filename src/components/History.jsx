@@ -11,17 +11,8 @@ export default function History() {
   useEffect(() => {
     fetchLogs();
     fetchWorkers();
-
-    // Subscribe to real-time changes
-    const channel = supabase
-      .channel('history-channel')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'history' },
-        () => fetchLogs()
-      )
-      .subscribe();
-
-    return () => supabase.removeChannel(channel);
+    // Real-time subscription disabled - causing infinite loop
+    // Will add back later with proper debouncing
   }, []);
 
   const fetchLogs = async () => {
@@ -45,7 +36,13 @@ export default function History() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setLogs(data || []);
+      // setLogs(data || []);
+      setLogs(prev => {
+  const newData = data || [];
+  return JSON.stringify(prev) === JSON.stringify(newData)
+    ? prev
+    : newData;
+});
     } catch (err) {
       setError(err.message);
     } finally {

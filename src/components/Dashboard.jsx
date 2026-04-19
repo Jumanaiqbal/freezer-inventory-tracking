@@ -6,33 +6,24 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
-
-  useEffect(() => {
-    fetchItems();
-
-    // Listen for real-time changes
-    const channel = supabase
-      .channel('items-channel')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'items' },
-        () => fetchItems()
-      )
-      .subscribe();
-
-    return () => supabase.removeChannel(channel);
-  }, []);
+  const [filterLowStock, setFilterLowStock] = useState(false);
 
   const fetchItems = async () => {
-    setLoading(true);
-    setError(null);
     try {
       const { data, error } = await supabase
-        .from('items')
-        .select('*')
-        .order('category', { ascending: true })
-        .order('subtype', { ascending: true });
+        .from("items")
+        .select("*")
+        .order("category", { ascending: true })
+        .order("subtype", { ascending: true });
+
       if (error) throw error;
-      setItems(data || []);
+
+      setItems(prev => {
+        const newData = data || [];
+        return JSON.stringify(prev) === JSON.stringify(newData)
+          ? prev
+          : newData;
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -40,11 +31,19 @@ export default function Dashboard() {
     }
   };
 
+  useEffect(() => {
+    fetchItems();
+    // Real-time subscription disabled - causing infinite loop
+    // Will add back later with proper debouncing
+  }, []);
+
   // Filter items based on search
-  const filteredItems = items.filter(item =>
-    item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.subtype.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredItems = items.filter(item => {
+    const matchesSearch = item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.subtype.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesLowStock = !filterLowStock || item.quantity < 50;
+    return matchesSearch && matchesLowStock;
+  });
 
   // Group filtered items by category
   const groupedItems = filteredItems.reduce((acc, item) => {
@@ -92,7 +91,11 @@ export default function Dashboard() {
           <div className="stat-label">Item Types</div>
           <div className="stat-value">{stats.totalTypes}</div>
         </div>
-        <div className="stat-card warning">
+        <div 
+          className={`stat-card warning ${filterLowStock ? "active" : ""}`}
+          onClick={() => setFilterLowStock(!filterLowStock)}
+          style={{ cursor: 'pointer', opacity: filterLowStock ? 1 : 0.8, transition: 'all 0.3s ease' }}
+        >
           <div className="stat-label">Low Stock</div>
           <div className="stat-value">{stats.lowStock}</div>
         </div>
