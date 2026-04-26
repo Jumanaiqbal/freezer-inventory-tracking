@@ -32,6 +32,8 @@ const clearCachesAndRender = () => {
 // Keep local development cache-free to avoid Chrome stale-shell/login loops.
 if ('serviceWorker' in navigator) {
   if (process.env.NODE_ENV === 'production' && !isLocalhost) {
+    // Always render app in production; service worker registration is async.
+    renderApp();
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/service-worker.js').catch(err => {
         console.log('Service Worker registration failed:', err);
