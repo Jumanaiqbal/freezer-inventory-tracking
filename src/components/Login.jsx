@@ -21,7 +21,7 @@ export default function Login({ onLogin }) {
         setLoading(false);
       }
       // Admin account
-      else if (username === "Sanar" && password === "Hashim@123") {
+      else if (username === "Sanar" && password === "Corner123") {
         onLogin("admin", rememberMe);
         setLoading(false);
       }
