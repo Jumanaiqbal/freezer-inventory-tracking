@@ -16,12 +16,12 @@ export default function Login({ onLogin }) {
     // Simulate login delay
     setTimeout(() => {
       // Worker account
-      if (username === "sanarworker" && password === "sanar123") {
+      if (username === "Sanarworker" && password === "Sanar123") {
         onLogin("worker", rememberMe);
         setLoading(false);
       }
       // Admin account
-      else if (username === "SanarAdmin" && password === "Admin@sanar!") {
+      else if (username === "Sanar" && password === "Hashim@123") {
         onLogin("admin", rememberMe);
         setLoading(false);
       }
