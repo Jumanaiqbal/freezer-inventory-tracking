@@ -1,7 +1,6 @@
-const CACHE_NAME = 'sanar-freezer-v1';
+const CACHE_NAME = 'sanar-freezer-v2';
 const urlsToCache = [
   '/',
-  '/index.html',
   '/manifest.json',
   '/favicon.ico',
 ];
@@ -39,6 +38,12 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  const requestUrl = new URL(event.request.url);
+  // Ignore browser extension requests and unsupported schemes.
+  if (!['http:', 'https:'].includes(requestUrl.protocol)) {
+    return;
+  }
+
   // For API calls, use network first strategy
   if (event.request.url.includes('supabase') || event.request.url.includes('api')) {
     event.respondWith(
@@ -48,7 +53,7 @@ self.addEventListener('fetch', event => {
           if (response && response.status === 200) {
             const responseToCache = response.clone();
             caches.open(CACHE_NAME).then(cache => {
-              cache.put(event.request, responseToCache);
+              cache.put(event.request, responseToCache).catch(() => {});
             });
           }
           return response;
@@ -57,6 +62,14 @@ self.addEventListener('fetch', event => {
           // Try cache if network fails
           return caches.match(event.request);
         })
+    );
+    return;
+  }
+
+  // For document navigation, prefer network to avoid stale app-shell.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match('/'))
     );
     return;
   }
@@ -74,7 +87,7 @@ self.addEventListener('fetch', event => {
         }
         const responseToCache = response.clone();
         caches.open(CACHE_NAME).then(cache => {
-          cache.put(event.request, responseToCache);
+          cache.put(event.request, responseToCache).catch(() => {});
         });
         return response;
       });
