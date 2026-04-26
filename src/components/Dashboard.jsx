@@ -3,46 +3,57 @@ import { supabase } from "../supabase";
 
 export default function Dashboard() {
   const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterLowStock, setFilterLowStock] = useState(false);
-
-  const fetchItems = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("items")
-        .select("*")
-        .order("category", { ascending: true })
-        .order("subtype", { ascending: true });
-
-      if (error) throw error;
-
-      setItems(prev => {
-        const newData = data || [];
-        return JSON.stringify(prev) === JSON.stringify(newData)
-          ? prev
-          : newData;
-      });
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [showLowStockOnly, setShowLowStockOnly] = useState(false);
 
   useEffect(() => {
-    fetchItems();
-    // Real-time subscription disabled - causing infinite loop
-    // Will add back later with proper debouncing
-  }, []);
+    const withTimeout = (promise, ms = 15000) =>
+      Promise.race([
+        promise,
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Request timed out. Please refresh and try again.")),
+            ms
+          )
+        ),
+      ]);
 
-  // Filter items based on search
-  const filteredItems = items.filter(item => {
-    const matchesSearch = item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.subtype.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesLowStock = !filterLowStock || item.quantity < 50;
-    return matchesSearch && matchesLowStock;
+    const fetchItems = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data, error } = await withTimeout(
+          supabase
+            .from("items")
+            .select("*")
+            .order("category", { ascending: true })
+            .order("subtype", { ascending: true })
+        );
+
+        if (error) throw error;
+        setItems(data || []);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchItems();
+  }, []); // Empty dependency array - run once on mount
+
+  const isLowStockItem = (quantity) => (Number(quantity) || 0) < 1000;
+
+  // Filter items based on search and low stock toggle
+  const filteredItems = items.filter((item) => {
+    const matchesSearch =
+      (item.category || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (item.subtype || "").toLowerCase().includes(searchTerm.toLowerCase());
+    if (!matchesSearch) return false;
+    if (!showLowStockOnly) return true;
+    return isLowStockItem(item.quantity);
   });
 
   // Group filtered items by category
@@ -56,13 +67,13 @@ export default function Dashboard() {
   const stats = {
     totalItems: items.reduce((sum, item) => sum + item.quantity, 0),
     totalTypes: items.length,
-    lowStock: items.filter(item => item.quantity < 50).length,
+    lowStock: items.filter(item => isLowStockItem(item.quantity)).length,
   };
 
   const getStockStatus = (quantity) => {
-    if (quantity < 20) return { class: 'critical-stock', label: 'Critical' };
-    if (quantity < 50) return { class: 'low-stock', label: 'Low' };
-    if (quantity < 100) return { class: 'medium-stock', label: 'Medium' };
+    const safeQuantity = Number(quantity) || 0;
+    if (safeQuantity < 1000) return { class: 'critical-stock', label: 'Critical' };
+    if (safeQuantity < 5000) return { class: 'medium-stock', label: 'Medium' };
     return { class: 'healthy-stock', label: 'Healthy' };
   };
 
@@ -91,15 +102,25 @@ export default function Dashboard() {
           <div className="stat-label">Item Types</div>
           <div className="stat-value">{stats.totalTypes}</div>
         </div>
-        <div 
-          className={`stat-card warning ${filterLowStock ? "active" : ""}`}
-          onClick={() => setFilterLowStock(!filterLowStock)}
-          style={{ cursor: 'pointer', opacity: filterLowStock ? 1 : 0.8, transition: 'all 0.3s ease' }}
+        <div
+          className="stat-card warning"
+          onClick={() => setShowLowStockOnly((prev) => !prev)}
+          style={{
+            cursor: "pointer",
+            border: showLowStockOnly ? "2px solid #f59e0b" : undefined,
+          }}
+          title="Click to filter low-stock items"
         >
           <div className="stat-label">Low Stock</div>
           <div className="stat-value">{stats.lowStock}</div>
         </div>
       </div>
+
+      {showLowStockOnly && (
+        <div className="message" style={{ marginBottom: "1rem" }}>
+          Showing only low-stock items. Click "Low Stock" card again to clear filter.
+        </div>
+      )}
 
       {filteredItems.length === 0 ? (
         <div className="category-section">

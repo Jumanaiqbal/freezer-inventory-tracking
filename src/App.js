@@ -14,9 +14,16 @@ export default function App() {
 
   // Load user from localStorage on mount
   useEffect(() => {
-    const savedUser = localStorage.getItem("user");
-    if (savedUser) {
+    try {
+      const savedUser = localStorage.getItem("user");
+      if (!savedUser) return;
+
       const userData = JSON.parse(savedUser);
+      if (!userData?.role) {
+        localStorage.removeItem("user");
+        return;
+      }
+
       setUser(userData);
       // Set appropriate initial view based on role
       if (userData.role === "worker") {
@@ -24,6 +31,9 @@ export default function App() {
       } else {
         setView("dashboard");
       }
+    } catch (err) {
+      // Clear corrupted cached user data to avoid auth render loops.
+      localStorage.removeItem("user");
     }
   }, []);
 
@@ -37,7 +47,13 @@ export default function App() {
       setView("dashboard"); // Admins start at Dashboard
     }
     if (rememberMe) {
-      localStorage.setItem("user", JSON.stringify(userData));
+      try {
+        localStorage.setItem("user", JSON.stringify(userData));
+      } catch (err) {
+        console.error("Could not persist login state:", err);
+      }
+    } else {
+      localStorage.removeItem("user");
     }
   };
 

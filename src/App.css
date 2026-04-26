@@ -795,6 +795,59 @@ button:disabled {
   border-color: var(--danger);
 }
 
+/* ========== SALES FORM (MOBILE-FIRST) ========== */
+.sales-items-panel {
+  margin-top: var(--spacing-sm);
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-xl);
+  background: #ffffff;
+  padding: var(--spacing-md);
+}
+
+.sales-items-title {
+  margin: 0 0 var(--spacing-md) 0;
+  font-size: var(--font-size-lg);
+  color: var(--neutral-800);
+  font-weight: var(--font-weight-semibold);
+}
+
+.sales-line-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.sales-line-field {
+  width: 100%;
+}
+
+.sales-qty-field {
+  text-align: left;
+}
+
+.sales-add-btn,
+.sales-remove-btn {
+  border: 1px solid var(--neutral-300);
+  border-radius: var(--radius-md);
+  background: var(--neutral-50);
+  color: var(--neutral-700);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  padding: 0.625rem 0.875rem;
+  min-height: 40px;
+  width: 100%;
+}
+
+.sales-add-btn:active,
+.sales-remove-btn:active {
+  transform: translateY(0);
+}
+
+.sales-remove-btn:disabled {
+  opacity: 0.45;
+}
+
 /* ========== MANAGE ITEMS ========== */
 .manage-container {
   display: grid;
@@ -1120,6 +1173,24 @@ button:disabled {
     font-size: 16px;
     min-height: 44px;
     padding: var(--spacing-md);
+  }
+}
+
+@media (min-width: 768px) {
+  .sales-line-row {
+    grid-template-columns: 1.2fr 1.2fr 0.8fr auto;
+    align-items: center;
+  }
+
+  .sales-remove-btn {
+    width: auto;
+    min-width: 86px;
+    height: 44px;
+    white-space: nowrap;
+  }
+
+  .sales-add-btn {
+    width: auto;
   }
 }
 

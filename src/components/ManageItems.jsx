@@ -9,10 +9,6 @@ export default function ManageItems() {
   const [message, setMessage] = useState({ text: "", type: "" });
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchCategories();
-  }, []);
-
   const fetchCategories = async () => {
     try {
       const { data, error } = await supabase
@@ -27,6 +23,10 @@ export default function ManageItems() {
       setMessage({ text: `Error loading categories: ${err.message}`, type: "error" });
     }
   };
+
+  useEffect(() => {
+    fetchCategories();
+  }, []); // Empty dependency array - run once on mount
 
   const handleAddCategory = async (e) => {
     e.preventDefault();
@@ -46,13 +46,22 @@ export default function ManageItems() {
     }
 
     try {
+      // Add a placeholder subtype so the category appears in the list
+      const { error } = await supabase
+        .from('items')
+        .insert([{ 
+          category: newCategory, 
+          subtype: "Default",
+          quantity: 0
+        }]);
+
+      if (error) throw error;
+
       setMessage({ 
-        text: `Category "${newCategory}" created! Now add subtypes for it.`, 
+        text: `Category "${newCategory}" created successfully`, 
         type: "success" 
       });
       setNewCategory("");
-      setSelectedCategory(newCategory);
-      // Optionally refresh categories list
       await fetchCategories();
       setTimeout(() => setMessage({ text: "", type: "" }), 3000);
     } catch (err) {

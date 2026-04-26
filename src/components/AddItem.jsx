@@ -11,10 +11,6 @@ export default function AddItem() {
   const [categories, setCategories] = useState([]);
   const [subtypes, setSubtypes] = useState([]);
 
-  useEffect(() => {
-    fetchCategories();
-  }, []);
-
   const fetchCategories = async () => {
     try {
       const { data, error } = await supabase
@@ -29,6 +25,10 @@ export default function AddItem() {
       console.error('Error loading categories:', err);
     }
   };
+
+  useEffect(() => {
+    fetchCategories();
+  }, []); // Empty dependency array - run once on mount
 
   const fetchSubtypes = async (selectedCategory) => {
     if (!selectedCategory) {

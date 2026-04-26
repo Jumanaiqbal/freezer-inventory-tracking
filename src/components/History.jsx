@@ -1,84 +1,176 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
 export default function History() {
   const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [filterWorker, setFilterWorker] = useState("");
   const [workers, setWorkers] = useState([]);
+  const [expandedSales, setExpandedSales] = useState({});
+
+  const parseWorkerContext = (rawWorkerName) => {
+    const parts = (rawWorkerName || "")
+      .split("|")
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    const worker = parts[0] || "Unknown";
+    const saleRef = parts.find((part) => part.startsWith("SALE-")) || null;
+    const companyPart = parts.find((part) => part.startsWith("company:")) || null;
+    const customerLabel = companyPart
+      ? companyPart.replace("company:", "Company: ")
+      : parts.includes("shop")
+        ? "Shop Customer"
+        : "";
+
+    return { worker, saleRef, customerLabel };
+  };
 
   useEffect(() => {
+    const withTimeout = (promise, ms = 15000) =>
+      Promise.race([
+        promise,
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Request timed out. Please refresh and try again.")),
+            ms
+          )
+        ),
+      ]);
+
+    const fetchLogs = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data, error } = await withTimeout(
+          supabase
+            .from('history')
+            .select(`
+              id,
+              item_id,
+              action,
+              quantity_changed,
+              worker_name,
+              created_at,
+              items (
+                category,
+                subtype
+              )
+            `)
+            .order('created_at', { ascending: false })
+        );
+
+        if (error) throw error;
+        setLogs(data || []);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const fetchWorkers = async () => {
+      try {
+        const { data, error } = await withTimeout(
+          supabase
+            .from('history')
+            .select('worker_name')
+        );
+
+        if (error) throw error;
+        const workerMap = new Map();
+        data?.forEach(d => {
+          const parsed = parseWorkerContext(d.worker_name);
+          const normalizedWorker = parsed.worker || "Unknown";
+          const lowerName = normalizedWorker.toLowerCase();
+          if (!workerMap.has(lowerName)) {
+            workerMap.set(lowerName, normalizedWorker);
+          }
+        });
+        const uniqueWorkers = Array.from(workerMap.entries())
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(entry => entry[1]);
+        setWorkers(uniqueWorkers);
+      } catch (err) {
+        console.error('Error fetching workers:', err);
+      }
+    };
+
     fetchLogs();
     fetchWorkers();
-    // Real-time subscription disabled - causing infinite loop
-    // Will add back later with proper debouncing
-  }, []);
-
-  const fetchLogs = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, error } = await supabase
-        .from('history')
-        .select(`
-          id,
-          item_id,
-          action,
-          quantity_changed,
-          worker_name,
-          created_at,
-          items (
-            category,
-            subtype
-          )
-        `)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      // setLogs(data || []);
-      setLogs(prev => {
-  const newData = data || [];
-  return JSON.stringify(prev) === JSON.stringify(newData)
-    ? prev
-    : newData;
-});
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchWorkers = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('history')
-        .select('worker_name');
-
-      if (error) throw error;
-      // Get unique workers (case-insensitive) - keep alphabetically first occurrence's casing
-      const workerMap = new Map();
-      data?.forEach(d => {
-        const lowerName = d.worker_name.toLowerCase();
-        if (!workerMap.has(lowerName)) {
-          workerMap.set(lowerName, d.worker_name);
-        }
-      });
-      // Sort by lowercase name but keep original casing
-      const uniqueWorkers = Array.from(workerMap.entries())
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(entry => entry[1]);
-      setWorkers(uniqueWorkers);
-    } catch (err) {
-      console.error('Error fetching workers:', err);
-    }
-  };
+  }, []); // Empty dependency array - run once on mount
 
   // Filter logs by worker (case-insensitive)
   const filteredLogs = filterWorker
-    ? logs.filter(log => log.worker_name.toLowerCase() === filterWorker.toLowerCase())
+    ? logs.filter(log => parseWorkerContext(log.worker_name).worker.toLowerCase() === filterWorker.toLowerCase())
     : logs;
+
+  // Group sales entries by SALE reference to avoid log spam for multi-item sales.
+  const groupedLogs = [];
+  const saleGroups = new Map();
+  filteredLogs.forEach((log) => {
+    const parsed = parseWorkerContext(log.worker_name);
+    if (!parsed.saleRef) {
+      groupedLogs.push({
+        type: "single",
+        id: `single-${log.id}`,
+        created_at: log.created_at,
+        worker: parsed.worker,
+        customerLabel: parsed.customerLabel,
+        category: log.items?.category || "N/A",
+        subtype: log.items?.subtype || "N/A",
+        action: log.action,
+        quantity_changed: log.quantity_changed,
+      });
+      return;
+    }
+
+    if (!saleGroups.has(parsed.saleRef)) {
+      saleGroups.set(parsed.saleRef, {
+        type: "group",
+        id: `group-${parsed.saleRef}`,
+        saleRef: parsed.saleRef,
+        created_at: log.created_at,
+        worker: parsed.worker,
+        customerLabel: parsed.customerLabel,
+        action: log.action,
+        lineCount: 0,
+        totalQuantity: 0,
+        lines: [],
+      });
+    }
+
+    const group = saleGroups.get(parsed.saleRef);
+    group.lineCount += 1;
+    group.totalQuantity += Number(log.quantity_changed) || 0;
+    group.lines.push({
+      id: log.id,
+      category: log.items?.category || "N/A",
+      subtype: log.items?.subtype || "N/A",
+      quantity: log.quantity_changed,
+    });
+    if (new Date(log.created_at) > new Date(group.created_at)) {
+      group.created_at = log.created_at;
+    }
+  });
+
+  const groupedSales = Array.from(saleGroups.values()).map((sale) => ({
+    ...sale,
+    lines: sale.lines.sort((a, b) =>
+      `${a.category}-${a.subtype}`.localeCompare(`${b.category}-${b.subtype}`)
+    ),
+  }));
+
+  groupedLogs.push(...groupedSales);
+  groupedLogs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  const toggleSale = (saleRef) => {
+    setExpandedSales((prev) => ({
+      ...prev,
+      [saleRef]: !prev[saleRef],
+    }));
+  };
 
   const formatDate = (dateString) => {
     const date = new Date(dateString);
@@ -139,62 +231,103 @@ export default function History() {
             </tr>
           </thead>
           <tbody>
-            {filteredLogs.length === 0 ? (
+            {groupedLogs.length === 0 ? (
               <tr>
                 <td colSpan="6" style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
                   {filterWorker ? `No logs found for ${filterWorker}` : 'No activity logs yet'}
                 </td>
               </tr>
             ) : (
-              filteredLogs.map((log, index) => (
-                <tr
-                  key={log.id}
-                  style={{
-                    borderBottom: '1px solid #e5e7eb',
-                    backgroundColor: index % 2 === 0 ? '#ffffff' : '#f9fafb',
-                    transition: 'background-color 0.2s'
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f3f4f6'}
-                  onMouseLeave={e => e.currentTarget.style.backgroundColor = index % 2 === 0 ? '#ffffff' : '#f9fafb'}
-                >
-                  <td style={{ padding: '1rem', color: '#4b5563', fontSize: '0.875rem' }}>
-                    {formatDate(log.created_at)}
-                  </td>
-                  <td style={{ padding: '1rem', color: '#374151', fontWeight: '500' }}>
-                    {log.worker_name}
-                  </td>
-                  <td style={{ padding: '1rem', color: '#4b5563' }}>
-                    {log.items?.category || 'N/A'}
-                  </td>
-                  <td style={{ padding: '1rem', color: '#4b5563' }}>
-                    {log.items?.subtype || 'N/A'}
-                  </td>
-                  <td style={{ padding: '1rem' }}>
-                    <span
+              groupedLogs.map((log, index) => {
+                const baseRowColor = index % 2 === 0 ? '#ffffff' : '#f9fafb';
+                const isExpanded = log.type === "group" ? !!expandedSales[log.saleRef] : false;
+                return (
+                  <Fragment key={log.id}>
+                    <tr
                       style={{
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '0.375rem',
-                        fontSize: '0.875rem',
-                        fontWeight: '600',
-                        backgroundColor: log.action === 'add' ? '#d1fae5' : '#fee2e2',
-                        color: log.action === 'add' ? '#065f46' : '#991b1b'
+                        borderBottom: '1px solid #e5e7eb',
+                        backgroundColor: baseRowColor,
+                        transition: 'background-color 0.2s',
+                        cursor: log.type === "group" ? "pointer" : "default",
                       }}
+                      onClick={() => log.type === "group" && toggleSale(log.saleRef)}
+                      onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f3f4f6'}
+                      onMouseLeave={e => e.currentTarget.style.backgroundColor = baseRowColor}
                     >
-                      {log.action === 'add' ? 'Added' : 'Removed'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '1rem', textAlign: 'center', fontWeight: '600', color: '#2563eb' }}>
-                    {log.quantity_changed} pcs
-                  </td>
-                </tr>
-              ))
+                      <td style={{ padding: '1rem', color: '#4b5563', fontSize: '0.875rem' }}>
+                        {formatDate(log.created_at)}
+                      </td>
+                      <td style={{ padding: '1rem', color: '#374151', fontWeight: '500' }}>
+                        {log.worker}
+                      </td>
+                      <td style={{ padding: '1rem', color: '#4b5563' }}>
+                        {log.type === "group" ? (log.customerLabel || "Grouped Sale") : log.category}
+                      </td>
+                      <td style={{ padding: '1rem', color: '#4b5563' }}>
+                        {log.type === "group"
+                          ? `${isExpanded ? "▼" : "▶"} ${log.lineCount} item${log.lineCount > 1 ? "s" : ""}`
+                          : log.subtype}
+                      </td>
+                      <td style={{ padding: '1rem' }}>
+                        <span
+                          style={{
+                            padding: '0.25rem 0.75rem',
+                            borderRadius: '0.375rem',
+                            fontSize: '0.875rem',
+                            fontWeight: '600',
+                            backgroundColor: log.action === 'add' ? '#d1fae5' : '#fee2e2',
+                            color: log.action === 'add' ? '#065f46' : '#991b1b'
+                          }}
+                        >
+                          {log.action === 'add' ? 'Added' : 'Removed'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '1rem', textAlign: 'center', fontWeight: '600', color: '#2563eb' }}>
+                        {log.type === "group" ? `${log.totalQuantity} pcs` : `${log.quantity_changed} pcs`}
+                      </td>
+                    </tr>
+
+                    {log.type === "group" && isExpanded && (
+                      <tr key={`${log.id}-details`} style={{ backgroundColor: '#f8fafc' }}>
+                        <td colSpan="6" style={{ padding: '0.75rem 1rem 1rem 1rem' }}>
+                          <div style={{ fontWeight: 600, color: '#374151', marginBottom: '0.5rem' }}>
+                            Sale Items
+                          </div>
+                          <div style={{ display: 'grid', gap: '0.4rem' }}>
+                            {log.lines.map((line) => (
+                              <div
+                                key={line.id}
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: '1fr 1fr auto',
+                                  gap: '0.75rem',
+                                  padding: '0.5rem 0.75rem',
+                                  border: '1px solid #e5e7eb',
+                                  borderRadius: '0.5rem',
+                                  backgroundColor: '#ffffff',
+                                  color: '#4b5563',
+                                  fontSize: '0.875rem',
+                                }}
+                              >
+                                <span>{line.category}</span>
+                                <span>{line.subtype}</span>
+                                <span style={{ fontWeight: 600, color: '#1d4ed8' }}>{line.quantity} pcs</span>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
 
       <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: '#f3f4f6', borderRadius: '0.75rem', color: '#6b7280', fontSize: '0.875rem' }}>
-        Total entries: <strong>{filteredLogs.length}</strong>
+        Total entries: <strong>{groupedLogs.length}</strong>
       </div>
     </div>
   );
