@@ -1,5 +1,7 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
+
+const PAGE_SIZE = 10;
 
 export default function History() {
   const [logs, setLogs] = useState([]);
@@ -8,6 +10,7 @@ export default function History() {
   const [filterWorker, setFilterWorker] = useState("");
   const [workers, setWorkers] = useState([]);
   const [expandedSales, setExpandedSales] = useState({});
+  const [currentPage, setCurrentPage] = useState(1);
 
   const parseWorkerContext = (rawWorkerName) => {
     const parts = (rawWorkerName || "")
@@ -101,69 +104,91 @@ export default function History() {
     fetchWorkers();
   }, []); // Empty dependency array - run once on mount
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterWorker]);
+
   // Filter logs by worker (case-insensitive)
   const filteredLogs = filterWorker
     ? logs.filter(log => parseWorkerContext(log.worker_name).worker.toLowerCase() === filterWorker.toLowerCase())
     : logs;
 
   // Group sales entries by SALE reference to avoid log spam for multi-item sales.
-  const groupedLogs = [];
-  const saleGroups = new Map();
-  filteredLogs.forEach((log) => {
-    const parsed = parseWorkerContext(log.worker_name);
-    if (!parsed.saleRef) {
-      groupedLogs.push({
-        type: "single",
-        id: `single-${log.id}`,
-        created_at: log.created_at,
-        worker: parsed.worker,
-        customerLabel: parsed.customerLabel,
+  const groupedLogs = useMemo(() => {
+    const rows = [];
+    const saleGroups = new Map();
+    filteredLogs.forEach((log) => {
+      const parsed = parseWorkerContext(log.worker_name);
+      if (!parsed.saleRef) {
+        rows.push({
+          type: "single",
+          id: `single-${log.id}`,
+          created_at: log.created_at,
+          worker: parsed.worker,
+          customerLabel: parsed.customerLabel,
+          category: log.items?.category || "N/A",
+          subtype: log.items?.subtype || "N/A",
+          action: log.action,
+          quantity_changed: log.quantity_changed,
+        });
+        return;
+      }
+
+      if (!saleGroups.has(parsed.saleRef)) {
+        saleGroups.set(parsed.saleRef, {
+          type: "group",
+          id: `group-${parsed.saleRef}`,
+          saleRef: parsed.saleRef,
+          created_at: log.created_at,
+          worker: parsed.worker,
+          customerLabel: parsed.customerLabel,
+          action: log.action,
+          lineCount: 0,
+          totalQuantity: 0,
+          lines: [],
+        });
+      }
+
+      const group = saleGroups.get(parsed.saleRef);
+      group.lineCount += 1;
+      group.totalQuantity += Number(log.quantity_changed) || 0;
+      group.lines.push({
+        id: log.id,
         category: log.items?.category || "N/A",
         subtype: log.items?.subtype || "N/A",
-        action: log.action,
-        quantity_changed: log.quantity_changed,
+        quantity: log.quantity_changed,
       });
-      return;
-    }
-
-    if (!saleGroups.has(parsed.saleRef)) {
-      saleGroups.set(parsed.saleRef, {
-        type: "group",
-        id: `group-${parsed.saleRef}`,
-        saleRef: parsed.saleRef,
-        created_at: log.created_at,
-        worker: parsed.worker,
-        customerLabel: parsed.customerLabel,
-        action: log.action,
-        lineCount: 0,
-        totalQuantity: 0,
-        lines: [],
-      });
-    }
-
-    const group = saleGroups.get(parsed.saleRef);
-    group.lineCount += 1;
-    group.totalQuantity += Number(log.quantity_changed) || 0;
-    group.lines.push({
-      id: log.id,
-      category: log.items?.category || "N/A",
-      subtype: log.items?.subtype || "N/A",
-      quantity: log.quantity_changed,
+      if (new Date(log.created_at) > new Date(group.created_at)) {
+        group.created_at = log.created_at;
+      }
     });
-    if (new Date(log.created_at) > new Date(group.created_at)) {
-      group.created_at = log.created_at;
-    }
-  });
 
-  const groupedSales = Array.from(saleGroups.values()).map((sale) => ({
-    ...sale,
-    lines: sale.lines.sort((a, b) =>
-      `${a.category}-${a.subtype}`.localeCompare(`${b.category}-${b.subtype}`)
-    ),
-  }));
+    const groupedSales = Array.from(saleGroups.values()).map((sale) => ({
+      ...sale,
+      lines: sale.lines.sort((a, b) =>
+        `${a.category}-${a.subtype}`.localeCompare(`${b.category}-${b.subtype}`)
+      ),
+    }));
 
-  groupedLogs.push(...groupedSales);
-  groupedLogs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    rows.push(...groupedSales);
+    rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return rows;
+  }, [filteredLogs]);
+
+  const totalGrouped = groupedLogs.length;
+  const totalPages = Math.max(1, Math.ceil(totalGrouped / PAGE_SIZE));
+  const effectivePage = Math.min(Math.max(1, currentPage), totalPages);
+  const pageStart = totalGrouped === 0 ? 0 : (effectivePage - 1) * PAGE_SIZE + 1;
+  const pageEnd = Math.min(totalGrouped, effectivePage * PAGE_SIZE);
+  const paginatedLogs = groupedLogs.slice(
+    (effectivePage - 1) * PAGE_SIZE,
+    effectivePage * PAGE_SIZE
+  );
+
+  useEffect(() => {
+    const tp = Math.max(1, Math.ceil(totalGrouped / PAGE_SIZE));
+    setCurrentPage((p) => Math.min(Math.max(1, p), tp));
+  }, [totalGrouped]);
 
   const toggleSale = (saleRef) => {
     setExpandedSales((prev) => ({
@@ -231,14 +256,14 @@ export default function History() {
             </tr>
           </thead>
           <tbody>
-            {groupedLogs.length === 0 ? (
+            {totalGrouped === 0 ? (
               <tr>
                 <td colSpan="6" style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
                   {filterWorker ? `No logs found for ${filterWorker}` : 'No activity logs yet'}
                 </td>
               </tr>
             ) : (
-              groupedLogs.map((log, index) => {
+              paginatedLogs.map((log, index) => {
                 const baseRowColor = index % 2 === 0 ? '#ffffff' : '#f9fafb';
                 const isExpanded = log.type === "group" ? !!expandedSales[log.saleRef] : false;
                 return (
@@ -326,8 +351,36 @@ export default function History() {
         </table>
       </div>
 
+      {totalGrouped > 0 && (
+        <div className="history-pagination">
+          <button
+            type="button"
+            className="history-pagination-btn"
+            disabled={effectivePage <= 1}
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+          >
+            Previous
+          </button>
+          <span className="history-pagination-meta">
+            Page {effectivePage} of {totalPages}
+            <span style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.8125rem' }}>
+              Showing {pageStart}–{pageEnd} of {totalGrouped}
+            </span>
+          </span>
+          <button
+            type="button"
+            className="history-pagination-btn"
+            disabled={effectivePage >= totalPages}
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+          >
+            Next
+          </button>
+        </div>
+      )}
+
       <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: '#f3f4f6', borderRadius: '0.75rem', color: '#6b7280', fontSize: '0.875rem' }}>
-        Total entries: <strong>{groupedLogs.length}</strong>
+        Total grouped entries: <strong>{totalGrouped}</strong>
+        {' '}(10 per page)
       </div>
     </div>
   );

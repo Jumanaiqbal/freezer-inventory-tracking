@@ -3,51 +3,52 @@ import { supabase } from "../supabase";
 
 export default function AddItem() {
   const [workerName, setWorkerName] = useState("");
-  const [category, setCategory] = useState("");
-  const [subtype, setSubtype] = useState("");
-  const [quantity, setQuantity] = useState("");
+  const [items, setItems] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [stockLines, setStockLines] = useState([
+    { category: "", subtype: "", quantity: "" },
+  ]);
   const [message, setMessage] = useState({ text: "", type: "" });
   const [loading, setLoading] = useState(false);
-  const [categories, setCategories] = useState([]);
-  const [subtypes, setSubtypes] = useState([]);
 
-  const fetchCategories = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('items')
-        .select('category')
-        .order('category');
-      
-      if (error) throw error;
-      const uniqueCategories = [...new Set(data?.map(item => item.category) || [])].sort();
-      setCategories(uniqueCategories);
-    } catch (err) {
-      console.error('Error loading categories:', err);
+  useEffect(() => {
+    fetchItems();
+  }, []);
+
+  const fetchItems = async () => {
+    const { data, error } = await supabase.from("items").select("*").order("category").order("subtype");
+    if (error) {
+      console.error("Error loading items:", error);
+      return;
+    }
+    if (data) {
+      setItems(data);
+      setCategories([...new Set(data.map((item) => item.category))].sort());
     }
   };
 
-  useEffect(() => {
-    fetchCategories();
-  }, []); // Empty dependency array - run once on mount
+  const getSubtypesForCategory = (category) =>
+    items
+      .filter((item) => item.category === category)
+      .map((item) => item.subtype)
+      .sort();
 
-  const fetchSubtypes = async (selectedCategory) => {
-    if (!selectedCategory) {
-      setSubtypes([]);
-      return;
-    }
-    try {
-      const { data, error } = await supabase
-        .from('items')
-        .select('subtype')
-        .eq('category', selectedCategory)
-        .order('subtype');
-      
-      if (error) throw error;
-      const uniqueSubtypes = [...new Set(data?.map(item => item.subtype) || [])].sort();
-      setSubtypes(uniqueSubtypes);
-    } catch (err) {
-      console.error('Error loading subtypes:', err);
-    }
+  const updateStockLine = (index, key, value) => {
+    setStockLines((prev) =>
+      prev.map((line, lineIndex) => {
+        if (lineIndex !== index) return line;
+        if (key === "category") return { ...line, category: value, subtype: "" };
+        return { ...line, [key]: value };
+      })
+    );
+  };
+
+  const addStockLine = () => {
+    setStockLines((prev) => [...prev, { category: "", subtype: "", quantity: "" }]);
+  };
+
+  const removeStockLine = (index) => {
+    setStockLines((prev) => prev.filter((_, lineIndex) => lineIndex !== index));
   };
 
   const handleSubmit = async (e) => {
@@ -61,76 +62,83 @@ export default function AddItem() {
       return;
     }
 
+    const normalizedLines = stockLines
+      .map((line) => ({
+        category: line.category.trim(),
+        subtype: line.subtype.trim(),
+        quantity: parseInt(line.quantity, 10),
+      }))
+      .filter(
+        (line) =>
+          line.category &&
+          line.subtype &&
+          Number.isInteger(line.quantity) &&
+          line.quantity > 0
+      );
+
+    if (normalizedLines.length === 0) {
+      setMessage({ text: "Add at least one product with a valid quantity", type: "error" });
+      setLoading(false);
+      return;
+    }
+
     try {
-      const quantityToAdd = parseInt(quantity);
-      
-      // Check if item already exists
-      const { data: existing } = await supabase
-        .from('items')
-        .select('id, quantity')
-        .eq('category', category)
-        .eq('subtype', subtype)
-        // .single();
-        .maybeSingle();
+      const { data: freshItems, error: loadError } = await supabase.from("items").select("id, category, subtype, quantity");
+      if (loadError) throw loadError;
 
-      if (existing) {
-        // Item exists - ADD to the existing quantity
-        const newQuantity = existing.quantity + quantityToAdd;
-        const { error } = await supabase
-          .from('items')
-          .update({ quantity: newQuantity })
-          .eq('id', existing.id);
+      const itemKey = (c, s) => `${c}||${s}`;
+      const itemByKey = new Map(
+        (freshItems || []).map((row) => [itemKey(row.category, row.subtype), { id: row.id, quantity: row.quantity }])
+      );
 
-        if (error) throw error;
+      for (const line of normalizedLines) {
+        const k = itemKey(line.category, line.subtype);
+        const existing = itemByKey.get(k);
 
-        // Log to history
-        const { error: historyError } = await supabase
-          .from('history')
-          .insert([{
-            item_id: existing.id,
-            action: 'add',
-            quantity_changed: quantityToAdd,
-            worker_name: workerName || "Unknown"
-          }]);
+        if (existing) {
+          const newQuantity = existing.quantity + line.quantity;
+          const { error: updateError } = await supabase.from("items").update({ quantity: newQuantity }).eq("id", existing.id);
+          if (updateError) throw updateError;
 
-        if (historyError) throw historyError;
+          const { error: historyError } = await supabase.from("history").insert([
+            {
+              item_id: existing.id,
+              action: "add",
+              quantity_changed: line.quantity,
+              worker_name: workerName.trim(),
+            },
+          ]);
+          if (historyError) throw historyError;
 
-        setMessage({ 
-          text: `Success! Added ${quantity} pieces`, 
-          type: "success" 
-        });
-      } else {
-        // Item doesn't exist - CREATE new item
-        const { data: newItem, error } = await supabase
-          .from('items')
-          .insert([{ category, subtype, quantity: quantityToAdd }])
-          .select('id');
+          itemByKey.set(k, { id: existing.id, quantity: newQuantity });
+        } else {
+          const { data: inserted, error: insertError } = await supabase
+            .from("items")
+            .insert([{ category: line.category, subtype: line.subtype, quantity: line.quantity }])
+            .select("id");
+          if (insertError) throw insertError;
 
-        if (error) throw error;
+          const { error: historyError } = await supabase.from("history").insert([
+            {
+              item_id: inserted[0].id,
+              action: "add",
+              quantity_changed: line.quantity,
+              worker_name: workerName.trim(),
+            },
+          ]);
+          if (historyError) throw historyError;
 
-        // Log to history
-        const { error: historyError } = await supabase
-          .from('history')
-          .insert([{
-            item_id: newItem[0].id,
-            action: 'add',
-            quantity_changed: quantityToAdd,
-            worker_name: workerName || "Unknown"
-          }]);
-
-        if (historyError) throw historyError;
-
-        setMessage({ 
-          text: `Success! Added ${quantity} pieces`, 
-          type: "success" 
-        });
+          itemByKey.set(k, { id: inserted[0].id, quantity: line.quantity });
+        }
       }
 
-      setCategory("");
-      setSubtype("");
-      setQuantity("");
-      setWorkerName("");
+      setMessage({
+        text: `Success! Added stock for ${normalizedLines.length} line(s)`,
+        type: "success",
+      });
+      setStockLines([{ category: "", subtype: "", quantity: "" }]);
       setTimeout(() => setMessage({ text: "", type: "" }), 4000);
+      fetchItems();
     } catch (err) {
       setMessage({ text: `Error: ${err.message}`, type: "error" });
     } finally {
@@ -143,71 +151,75 @@ export default function AddItem() {
       <h2>Update Stock</h2>
       <form onSubmit={handleSubmit}>
         <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#374151' }}>
+          <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500", color: "#374151" }}>
             Your Name
           </label>
-          <input 
+          <input
             type="text"
             placeholder="Enter your name"
             value={workerName}
-            onChange={e => setWorkerName(e.target.value)}
+            onChange={(e) => setWorkerName(e.target.value)}
             required
           />
         </div>
 
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#374151' }}>
-            Product Category
-          </label>
-          <select 
-            value={category} 
-            onChange={e => { 
-              setCategory(e.target.value);
-              setSubtype("");
-              fetchSubtypes(e.target.value);
-            }} 
-            required
-          >
-            <option value="">Select a category...</option>
-            {categories.map(cat => (
-              <option key={cat} value={cat}>{cat}</option>
-            ))}
-          </select>
-        </div>
-        
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#374151' }}>
-            Subtype
-          </label>
-          <select
-            value={subtype}
-            onChange={e => setSubtype(e.target.value)}
-            required
-            disabled={!category}
-          >
-            <option value="">Select a subtype...</option>
-            {subtypes.map(sub => (
-              <option key={sub} value={sub}>{sub}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#374151' }}>
-            Initial Quantity (pieces)
-          </label>
-          <input
-            type="number"
-            placeholder="Enter quantity"
-            value={quantity}
-            onChange={e => setQuantity(e.target.value)}
-            min="0"
-            required
-          />
+        <div className="sales-items-panel">
+          <h3 className="sales-items-title">Items to restock</h3>
+          {stockLines.map((line, index) => (
+            <div key={index} className="sales-line-row">
+              <select
+                value={line.category}
+                onChange={(e) => updateStockLine(index, "category", e.target.value)}
+                required
+                className="sales-line-field"
+              >
+                <option value="">Category</option>
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={line.subtype}
+                onChange={(e) => updateStockLine(index, "subtype", e.target.value)}
+                required
+                disabled={!line.category}
+                className="sales-line-field"
+              >
+                <option value="">Subtype</option>
+                {getSubtypesForCategory(line.category).map((subtype) => (
+                  <option key={subtype} value={subtype}>
+                    {subtype}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min="1"
+                placeholder="Qty"
+                value={line.quantity}
+                onChange={(e) => updateStockLine(index, "quantity", e.target.value)}
+                required
+                className="sales-line-field sales-qty-field"
+              />
+              <button
+                type="button"
+                onClick={() => removeStockLine(index)}
+                disabled={stockLines.length === 1}
+                className="sales-remove-btn"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <button type="button" onClick={addStockLine} className="sales-add-btn">
+            + Add another product
+          </button>
         </div>
 
         <button type="submit" disabled={loading}>
-          {loading ? "Adding..." : "Add Item"}
+          {loading ? "Adding..." : "Add to stock (all lines)"}
         </button>
       </form>
       {message.text && <p className={`message ${message.type}`}>{message.text}</p>}
