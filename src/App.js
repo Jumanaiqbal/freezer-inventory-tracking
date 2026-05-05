@@ -68,25 +68,19 @@ export default function App() {
     setMenuOpen(false);
   };
 
-  // Filter menu items based on user role
+  // Menu: Dashboard is admin-only; Activity Logs are available to workers and admins.
   const getMenuItems = () => {
-    const baseItems = [
-      { view: "manage", label: "Manage Items", icon: "➕", allRoles: true },
-      { view: "add", label: "Update Stock", icon: "📦", allRoles: true },
-      { view: "update", label: "Sales", icon: "🛒", allRoles: true },
-    ];
-
-    const adminOnlyItems = [
-      { view: "dashboard", label: "Dashboard", icon: "📊", adminOnly: true },
-      { view: "history", label: "Activity Logs", icon: "📋", adminOnly: true },
+    const sharedItems = [
+      { view: "manage", label: "Manage Items", icon: "➕" },
+      { view: "add", label: "Update Stock", icon: "📦" },
+      { view: "update", label: "Sales", icon: "🛒" },
+      { view: "history", label: "Activity Logs", icon: "📋" },
     ];
 
     if (user?.role === "admin") {
-      return [adminOnlyItems[0], ...baseItems, adminOnlyItems[1]];
-    } else {
-      // Worker role - no dashboard or activity logs
-      return baseItems;
+      return [{ view: "dashboard", label: "Dashboard", icon: "📊" }, ...sharedItems];
     }
+    return sharedItems;
   };
 
   // Show login page if not authenticated
@@ -145,7 +139,7 @@ export default function App() {
 
       <main className="main-content">
         {view === "dashboard" && user?.role === "admin" && <Dashboard />}
-{view === "history" && user?.role === "admin" && <History />}
+        {view === "history" && <History />}
         {view === "manage" && <ManageItems />}
         {view === "add" && <AddItem />}
         {view === "update" && <UpdateStock />}
