@@ -83,57 +83,21 @@ export default function AddItem() {
     }
 
     try {
-      const { data: freshItems, error: loadError } = await supabase.from("items").select("id, category, subtype, quantity");
-      if (loadError) throw loadError;
+      const lines = normalizedLines.map((line) => ({
+        category: line.category,
+        subtype: line.subtype,
+        quantity: line.quantity,
+      }));
 
-      const itemKey = (c, s) => `${c}||${s}`;
-      const itemByKey = new Map(
-        (freshItems || []).map((row) => [itemKey(row.category, row.subtype), { id: row.id, quantity: row.quantity }])
-      );
+      const { data, error } = await supabase.rpc("process_restock", {
+        p_lines: lines,
+        p_worker_name: workerName.trim(),
+      });
 
-      for (const line of normalizedLines) {
-        const k = itemKey(line.category, line.subtype);
-        const existing = itemByKey.get(k);
-
-        if (existing) {
-          const newQuantity = existing.quantity + line.quantity;
-          const { error: updateError } = await supabase.from("items").update({ quantity: newQuantity }).eq("id", existing.id);
-          if (updateError) throw updateError;
-
-          const { error: historyError } = await supabase.from("history").insert([
-            {
-              item_id: existing.id,
-              action: "add",
-              quantity_changed: line.quantity,
-              worker_name: workerName.trim(),
-            },
-          ]);
-          if (historyError) throw historyError;
-
-          itemByKey.set(k, { id: existing.id, quantity: newQuantity });
-        } else {
-          const { data: inserted, error: insertError } = await supabase
-            .from("items")
-            .insert([{ category: line.category, subtype: line.subtype, quantity: line.quantity }])
-            .select("id");
-          if (insertError) throw insertError;
-
-          const { error: historyError } = await supabase.from("history").insert([
-            {
-              item_id: inserted[0].id,
-              action: "add",
-              quantity_changed: line.quantity,
-              worker_name: workerName.trim(),
-            },
-          ]);
-          if (historyError) throw historyError;
-
-          itemByKey.set(k, { id: inserted[0].id, quantity: line.quantity });
-        }
-      }
+      if (error) throw error;
 
       setMessage({
-        text: `Success! Added stock for ${normalizedLines.length} line(s)`,
+        text: `Success! Added stock for ${data?.processed ?? lines.length} line(s)`,
         type: "success",
       });
       setStockLines([{ category: "", subtype: "", quantity: "" }]);

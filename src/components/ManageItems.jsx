@@ -3,21 +3,16 @@ import { supabase } from "../supabase";
 
 export default function ManageItems() {
   const [categories, setCategories] = useState([]);
-  const [newCategory, setNewCategory] = useState("");
-  const [newSubtype, setNewSubtype] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("");
+  const [categoryName, setCategoryName] = useState("");
+  const [subtypeName, setSubtypeName] = useState("");
   const [message, setMessage] = useState({ text: "", type: "" });
   const [loading, setLoading] = useState(false);
 
   const fetchCategories = async () => {
     try {
-      const { data, error } = await supabase
-        .from('items')
-        .select('category')
-        .order('category');
-      
+      const { data, error } = await supabase.from("items").select("category").order("category");
       if (error) throw error;
-      const uniqueCategories = [...new Set(data?.map(item => item.category) || [])].sort();
+      const uniqueCategories = [...new Set(data?.map((item) => item.category) || [])].sort();
       setCategories(uniqueCategories);
     } catch (err) {
       setMessage({ text: `Error loading categories: ${err.message}`, type: "error" });
@@ -26,98 +21,34 @@ export default function ManageItems() {
 
   useEffect(() => {
     fetchCategories();
-  }, []); // Empty dependency array - run once on mount
+  }, []);
 
-  const handleAddCategory = async (e) => {
+  const handleAddItem = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage({ text: "", type: "" });
 
-    if (!newCategory.trim()) {
-      setMessage({ text: "Please enter a category name", type: "error" });
-      setLoading(false);
-      return;
-    }
+    const category = categoryName.trim();
+    const subtype = subtypeName.trim();
 
-    if (categories.includes(newCategory)) {
-      setMessage({ text: "This category already exists", type: "error" });
+    if (!category || !subtype) {
+      setMessage({ text: "Please enter category and subtype names", type: "error" });
       setLoading(false);
       return;
     }
 
     try {
-      // Add a placeholder subtype so the category appears in the list
-      const { error } = await supabase
-        .from('items')
-        .insert([{ 
-          category: newCategory, 
-          subtype: "Default",
-          quantity: 0
-        }]);
+      const { error } = await supabase.rpc("add_category_subtype", {
+        p_category: category,
+        p_subtype: subtype,
+      });
 
       if (error) throw error;
 
-      setMessage({ 
-        text: `Category "${newCategory}" created successfully`, 
-        type: "success" 
-      });
-      setNewCategory("");
+      setMessage({ text: `Added "${subtype}" under "${category}"`, type: "success" });
+      setSubtypeName("");
+      if (!categories.includes(category)) setCategoryName("");
       await fetchCategories();
-      setTimeout(() => setMessage({ text: "", type: "" }), 3000);
-    } catch (err) {
-      setMessage({ text: `Error: ${err.message}`, type: "error" });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAddSubtype = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage({ text: "", type: "" });
-
-    if (!selectedCategory) {
-      setMessage({ text: "Please select a category", type: "error" });
-      setLoading(false);
-      return;
-    }
-
-    if (!newSubtype.trim()) {
-      setMessage({ text: "Please enter a subtype name", type: "error" });
-      setLoading(false);
-      return;
-    }
-
-    try {
-      // Check if subtype already exists
-      const { data: existing } = await supabase
-        .from('items')
-        .select('id')
-        .eq('category', selectedCategory)
-        .eq('subtype', newSubtype)
-        .maybeSingle();
-
-      if (existing) {
-        setMessage({ text: "This subtype already exists in this category", type: "error" });
-        setLoading(false);
-        return;
-      }
-
-      const { error } = await supabase
-        .from('items')
-        .insert([{ 
-          category: selectedCategory, 
-          subtype: newSubtype,
-          quantity: 0
-        }]);
-
-      if (error) throw error;
-
-      setMessage({ 
-        text: `Subtype "${newSubtype}" added to "${selectedCategory}"`, 
-        type: "success" 
-      });
-      setNewSubtype("");
       setTimeout(() => setMessage({ text: "", type: "" }), 3000);
     } catch (err) {
       setMessage({ text: `Error: ${err.message}`, type: "error" });
@@ -129,61 +60,46 @@ export default function ManageItems() {
   return (
     <div className="manage-items">
       <h2>Manage Food Items</h2>
-      
+
       <div className="manage-container">
         <div className="manage-section">
-          <h3>Add New Category</h3>
-          <form onSubmit={handleAddCategory}>
+          <h3>Add Category / Subitem</h3>
+          <p style={{ color: "#6b7280", fontSize: "0.875rem", marginBottom: "1rem" }}>
+            Pick an existing category or type a new one. Each row is a real product (no placeholder items).
+          </p>
+          <form onSubmit={handleAddItem}>
             <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#374151' }}>
-                Category Name
+              <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500", color: "#374151" }}>
+                Category
               </label>
               <input
                 type="text"
-                placeholder="e.g., Biryani, Pizza, Burger"
-                value={newCategory}
-                onChange={e => setNewCategory(e.target.value)}
+                list="category-suggestions"
+                placeholder="e.g. Samosa, Falafel"
+                value={categoryName}
+                onChange={(e) => setCategoryName(e.target.value)}
                 required
               />
-            </div>
-            <button type="submit" disabled={loading}>
-              {loading ? "Adding..." : "Add Category"}
-            </button>
-          </form>
-        </div>
-
-        <div className="manage-section">
-          <h3>Add Subitem to Category</h3>
-          <form onSubmit={handleAddSubtype}>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#374151' }}>
-                Select Category
-              </label>
-              <select 
-                value={selectedCategory} 
-                onChange={e => setSelectedCategory(e.target.value)}
-                required
-              >
-                <option value="">Choose a category...</option>
-                {categories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
+              <datalist id="category-suggestions">
+                {categories.map((cat) => (
+                  <option key={cat} value={cat} />
                 ))}
-              </select>
+              </datalist>
             </div>
             <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500', color: '#374151' }}>
-                Subitem Name
+              <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: "500", color: "#374151" }}>
+                Subitem name
               </label>
               <input
                 type="text"
-                placeholder="e.g., Chicken, Veg, Spicy"
-                value={newSubtype}
-                onChange={e => setNewSubtype(e.target.value)}
+                placeholder="e.g. Chicken, Veg, Cheese"
+                value={subtypeName}
+                onChange={(e) => setSubtypeName(e.target.value)}
                 required
               />
             </div>
             <button type="submit" disabled={loading}>
-              {loading ? "Adding..." : "Add Subitem"}
+              {loading ? "Adding..." : "Add item"}
             </button>
           </form>
         </div>

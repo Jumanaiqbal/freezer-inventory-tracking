@@ -42,9 +42,9 @@ export default function Dashboard() {
     };
 
     fetchItems();
-  }, []); // Empty dependency array - run once on mount
+  }, []);
 
-  const isLowStockItem = (quantity) => (Number(quantity) || 0) < 1000;
+  const isLowStockItem = (quantity) => (Number(quantity) || 0) < 20;
 
   // Filter items based on search and low stock toggle
   const filteredItems = items.filter((item) => {
@@ -65,15 +65,16 @@ export default function Dashboard() {
 
   // Calculate stats
   const stats = {
-    totalItems: items.reduce((sum, item) => sum + item.quantity, 0),
+    totalItems: items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0),
     totalTypes: items.length,
     lowStock: items.filter(item => isLowStockItem(item.quantity)).length,
   };
 
   const getStockStatus = (quantity) => {
     const safeQuantity = Number(quantity) || 0;
-    if (safeQuantity < 1000) return { class: 'critical-stock', label: 'Critical' };
-    if (safeQuantity < 5000) return { class: 'medium-stock', label: 'Medium' };
+    if (safeQuantity < 20) return { class: 'critical-stock', label: 'Critical' };
+    if (safeQuantity < 50) return { class: 'medium-stock', label: 'Medium' };
+    if (safeQuantity < 100) return { class: 'low-stock', label: 'Low' };
     return { class: 'healthy-stock', label: 'Healthy' };
   };
 

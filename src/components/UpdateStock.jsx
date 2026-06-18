@@ -4,7 +4,6 @@ import { supabase } from "../supabase";
 export default function UpdateStock() {
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [action] = useState("remove"); // Sales only removes items
   const [workerName, setWorkerName] = useState("");
   const [customerType, setCustomerType] = useState("shop");
   const [companyName, setCompanyName] = useState("");
@@ -19,11 +18,14 @@ export default function UpdateStock() {
   }, []);
 
   const fetchItems = async () => {
-    const { data } = await supabase.from('items').select('*').order('category').order('subtype');
+    const { data, error } = await supabase.from('items').select('*').order('category').order('subtype');
+    if (error) {
+      setMessage({ text: `Error loading items: ${error.message}`, type: 'error' });
+      return;
+    }
     if (data) {
       setItems(data);
-      const uniqueCategories = [...new Set(data.map(item => item.category))].sort();
-      setCategories(uniqueCategories);
+      setCategories([...new Set(data.map(item => item.category))].sort());
     }
   };
 
@@ -85,53 +87,24 @@ export default function UpdateStock() {
     }
 
     try {
-      const saleRef = `SALE-${Date.now()}`;
-      const stockTracker = new Map(items.map((item) => [item.id, item.quantity]));
+      const lines = normalizedLines.map((line) => ({
+        category: line.category,
+        subtype: line.subtype,
+        quantity: line.quantity,
+      }));
 
-      for (const line of normalizedLines) {
-        const item = items.find(
-          (i) => i.category === line.category && i.subtype === line.subtype
-        );
-        if (!item) {
-          throw new Error(`Item not found: ${line.category} / ${line.subtype}`);
-        }
+      const { data, error } = await supabase.rpc("process_sale", {
+        p_lines: lines,
+        p_worker_name: workerName.trim(),
+        p_customer_type: customerType,
+        p_company_name: customerType === "company" ? companyName.trim() : null,
+      });
 
-        const available = stockTracker.get(item.id) ?? item.quantity;
-        if (line.quantity > available) {
-          throw new Error(
-            `Not enough stock for ${line.subtype}. Available: ${available}, requested: ${line.quantity}`
-          );
-        }
+      if (error) throw error;
 
-        const finalQuantity = Math.max(0, available - line.quantity);
-        const { error: updateError } = await supabase
-          .from('items')
-          .update({ quantity: finalQuantity })
-          .eq('id', item.id);
-        if (updateError) throw updateError;
-
-        stockTracker.set(item.id, finalQuantity);
-
-        const contextParts = [
-          workerName.trim(),
-          saleRef,
-          customerType === "company" ? `company:${companyName.trim()}` : "shop",
-        ];
-
-        const { error: historyError } = await supabase
-          .from('history')
-          .insert([{
-            item_id: item.id,
-            action: action,
-            quantity_changed: line.quantity,
-            worker_name: contextParts.join(" | "),
-          }]);
-        if (historyError) throw historyError;
-      }
-
-      setMessage({ 
-        text: `Success! Processed ${normalizedLines.length} sales item(s)`, 
-        type: "success" 
+      setMessage({
+        text: `Success! Processed ${data?.processed ?? lines.length} sales item(s)`,
+        type: "success",
       });
       setSaleLines([{ category: "", subtype: "", quantity: "" }]);
       setCompanyName("");

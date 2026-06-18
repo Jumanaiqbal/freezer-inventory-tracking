@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sanar-freezer-v2';
+const CACHE_NAME = 'sanar-freezer-v3';
 const urlsToCache = [
   '/',
   '/manifest.json',

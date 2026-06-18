@@ -300,11 +300,17 @@ export default function History() {
                             borderRadius: '0.375rem',
                             fontSize: '0.875rem',
                             fontWeight: '600',
-                            backgroundColor: log.action === 'add' ? '#d1fae5' : '#fee2e2',
-                            color: log.action === 'add' ? '#065f46' : '#991b1b'
+                            backgroundColor:
+                              log.action === 'add' || log.action === 'opening' ? '#d1fae5' : '#fee2e2',
+                            color:
+                              log.action === 'add' || log.action === 'opening' ? '#065f46' : '#991b1b'
                           }}
                         >
-                          {log.action === 'add' ? 'Added' : 'Removed'}
+                          {log.action === 'add'
+                            ? 'Added'
+                            : log.action === 'opening'
+                              ? 'Opening'
+                              : 'Removed'}
                         </span>
                       </td>
                       <td style={{ padding: '1rem', textAlign: 'center', fontWeight: '600', color: '#2563eb' }}>
