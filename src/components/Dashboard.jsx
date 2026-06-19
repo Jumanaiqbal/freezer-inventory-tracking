@@ -44,7 +44,8 @@ export default function Dashboard() {
     fetchItems();
   }, []);
 
-  const isLowStockItem = (quantity) => (Number(quantity) || 0) < 20;
+  // Stock colour bands: red < 1000, yellow 1000–5000, green > 5000
+  const isLowStockItem = (quantity) => (Number(quantity) || 0) < 1000;
 
   // Filter items based on search and low stock toggle
   const filteredItems = items.filter((item) => {
@@ -72,10 +73,13 @@ export default function Dashboard() {
 
   const getStockStatus = (quantity) => {
     const safeQuantity = Number(quantity) || 0;
-    if (safeQuantity < 20) return { class: 'critical-stock', label: 'Critical' };
-    if (safeQuantity < 50) return { class: 'medium-stock', label: 'Medium' };
-    if (safeQuantity < 100) return { class: 'low-stock', label: 'Low' };
-    return { class: 'healthy-stock', label: 'Healthy' };
+    if (safeQuantity < 1000) {
+      return { class: 'critical-stock', badge: 'critical', label: 'Low Stock' };
+    }
+    if (safeQuantity <= 5000) {
+      return { class: 'medium-stock', badge: 'warning', label: 'Medium' };
+    }
+    return { class: 'healthy-stock', badge: 'health', label: 'Healthy' };
   };
 
   if (loading) return <div className="loading">Loading inventory</div>;
@@ -144,7 +148,7 @@ export default function Dashboard() {
                     <h4>{item.subtype}</h4>
                     <p className="quantity">{item.quantity}</p>
                     <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.5rem' }}>pieces in stock</div>
-                    <span className={`stock-badge ${status.class.replace('-stock', '')}`}>
+                    <span className={`stock-badge ${status.badge}`}>
                       {status.label}
                     </span>
                   </div>
