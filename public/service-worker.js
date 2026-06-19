@@ -1,72 +1,50 @@
-const CACHE_NAME = 'sanar-freezer-v3';
-const urlsToCache = [
-  '/',
-  '/manifest.json',
-  '/favicon.ico',
-];
+const CACHE_NAME = 'sanar-freezer-v4';
 
-// Install event - cache essential files
-self.addEventListener('install', event => {
+// Only cache small shell files — NEVER cache main.js (it blocks home-screen updates).
+const SHELL_URLS = ['/manifest.json', '/favicon.ico'];
+
+self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(urlsToCache);
-    })
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_URLS))
   );
   self.skipWaiting();
 });
 
-// Activate event - clean up old caches
-self.addEventListener('activate', event => {
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
+    caches.keys().then((cacheNames) =>
+      Promise.all(
+        cacheNames.map((name) => (name !== CACHE_NAME ? caches.delete(name) : undefined))
+      )
+    )
   );
   self.clients.claim();
 });
 
-// Fetch event - Network first with cache fallback
-self.addEventListener('fetch', event => {
-  // Skip non-GET requests
-  if (event.request.method !== 'GET') {
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
+  const url = new URL(event.request.url);
+  if (!['http:', 'https:'].includes(url.protocol)) return;
+
+  // Always fetch fresh app code (JS/CSS) — fixes stale home-screen icon.
+  if (
+    url.pathname.startsWith('/static/js/') ||
+    url.pathname.startsWith('/static/css/') ||
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.css')
+  ) {
+    event.respondWith(fetch(event.request));
     return;
   }
 
-  const requestUrl = new URL(event.request.url);
-  // Ignore browser extension requests and unsupported schemes.
-  if (!['http:', 'https:'].includes(requestUrl.protocol)) {
+  // Supabase: network only
+  if (url.hostname.includes('supabase')) {
+    event.respondWith(fetch(event.request));
     return;
   }
 
-  // For API calls, use network first strategy
-  if (event.request.url.includes('supabase') || event.request.url.includes('api')) {
-    event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          // Cache successful API responses
-          if (response && response.status === 200) {
-            const responseToCache = response.clone();
-            caches.open(CACHE_NAME).then(cache => {
-              cache.put(event.request, responseToCache).catch(() => {});
-            });
-          }
-          return response;
-        })
-        .catch(() => {
-          // Try cache if network fails
-          return caches.match(event.request);
-        })
-    );
-    return;
-  }
-
-  // For document navigation, prefer network to avoid stale app-shell.
+  // HTML navigation: network first
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).catch(() => caches.match('/'))
@@ -74,31 +52,16 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // For static assets, use cache first strategy
+  // Everything else: network first, cache fallback
   event.respondWith(
-    caches.match(event.request).then(response => {
-      if (response) {
-        return response;
-      }
-      return fetch(event.request).then(response => {
-        // Don't cache non-successful responses
-        if (!response || response.status !== 200) {
-          return response;
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }
-        const responseToCache = response.clone();
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(event.request, responseToCache).catch(() => {});
-        });
         return response;
-      });
-    }).catch(() => {
-      return new Response('Offline - Content not available', {
-        status: 503,
-        statusText: 'Service Unavailable',
-        headers: new Headers({
-          'Content-Type': 'text/plain'
-        })
-      });
-    })
+      })
+      .catch(() => caches.match(event.request))
   );
 });

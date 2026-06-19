@@ -32,12 +32,27 @@ const clearCachesAndRender = () => {
 // Keep local development cache-free to avoid Chrome stale-shell/login loops.
 if ('serviceWorker' in navigator) {
   if (process.env.NODE_ENV === 'production' && !isLocalhost) {
-    // Always render app in production; service worker registration is async.
     renderApp();
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/service-worker.js').catch(err => {
-        console.log('Service Worker registration failed:', err);
-      });
+      navigator.serviceWorker
+        .register('/service-worker.js')
+        .then((registration) => {
+          // Check for updates every time the app opens (home screen included).
+          registration.update();
+
+          registration.addEventListener('updatefound', () => {
+            const newWorker = registration.installing;
+            if (!newWorker) return;
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+                window.location.reload();
+              }
+            });
+          });
+        })
+        .catch((err) => {
+          console.log('Service Worker registration failed:', err);
+        });
     });
   } else {
     navigator.serviceWorker
